@@ -21,6 +21,7 @@ import {
   getAnimeDetails,
   getAnimeStatus,
   getCharacters,
+  getReviews,
   getUserName,
   randomVerifier,
   refresh,
@@ -395,6 +396,12 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
       getCharacters(message.animeId)
         .then((characters) => sendResponse({ ok: true, characters }))
         .catch(() => sendResponse({ ok: false, characters: [] }));
+      return true; // async response
+    }
+    case 'GET_MAL_REVIEWS': {
+      getReviews(message.animeId)
+        .then(({ reviews, allUrl }) => sendResponse({ ok: true, reviews, allUrl }))
+        .catch(() => sendResponse({ ok: false, reviews: [] }));
       return true; // async response
     }
     case 'SET_MAL_STATUS': {

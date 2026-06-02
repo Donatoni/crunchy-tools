@@ -200,6 +200,17 @@ export interface MalCharacter {
   role: string;
 }
 
+export interface MalReview {
+  user: string;
+  avatar: string | null;
+  score: number | null;
+  text: string;
+  /** "Recommended" / "Mixed Feelings" / "Not Recommended", if any. */
+  tag: string;
+  /** Link to the full review on MAL. */
+  url: string;
+}
+
 export interface MalDetails extends MalStatus {
   title: string;
   synopsis: string;
@@ -282,6 +293,52 @@ export async function getCharacters(animeId: number): Promise<MalCharacter[]> {
       image: d.character?.images?.jpg?.image_url ?? null,
       role: d.role ?? '',
     }));
+}
+
+/**
+ * Featured reviews via Jikan (MAL's own API has no reviews endpoint), plus the
+ * URL of the show's full reviews tab. That URL needs MAL's title slug, which we
+ * get from Jikan's anime endpoint (`data.url`); falls back to the bare anime
+ * page if that lookup fails.
+ */
+export async function getReviews(
+  animeId: number,
+): Promise<{ reviews: MalReview[]; allUrl: string }> {
+  const res = await fetch(
+    `https://api.jikan.moe/v4/anime/${animeId}/reviews?preliminary=false&spoilers=false`,
+  );
+  if (!res.ok) throw new Error(`Jikan HTTP ${res.status}`);
+  const j = await res.json();
+  const reviews: MalReview[] = (j.data ?? [])
+    .slice(0, 4)
+    .map(
+      (d: {
+        user?: { username?: string; images?: { jpg?: { image_url?: string } } };
+        score?: number;
+        review?: string;
+        tags?: string[];
+        url?: string;
+      }) => ({
+        user: d.user?.username ?? '',
+        avatar: d.user?.images?.jpg?.image_url ?? null,
+        score: d.score ?? null,
+        text: (d.review ?? '').trim(),
+        tag: (d.tags ?? [])[0] ?? '',
+        url: d.url ?? '',
+      }),
+    );
+
+  let allUrl = `https://myanimelist.net/anime/${animeId}`;
+  try {
+    const a = await fetch(`https://api.jikan.moe/v4/anime/${animeId}`);
+    if (a.ok) {
+      const aj = await a.json();
+      if (aj.data?.url) allUrl = `${aj.data.url.replace(/\/$/, '')}/reviews`;
+    }
+  } catch {
+    /* keep the bare-anime fallback */
+  }
+  return { reviews, allUrl };
 }
 
 export interface MalListPatch {

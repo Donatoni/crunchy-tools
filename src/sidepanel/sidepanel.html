@@ -45,7 +45,7 @@
             <div class="bar"><i id="progBar"></i></div>
             <div class="ep-row">
               <span class="lbl">Episode</span>
-              <span class="stepper"><button id="epMinus" aria-label="One fewer">–</button><span class="val" id="epVal">0</span><button id="epPlus" aria-label="One more">+</button></span>
+              <span class="stepper"><button id="epMinus" aria-label="One fewer">–</button><span class="val" id="epVal" contenteditable="true" role="textbox" inputmode="numeric" aria-label="Episode number" title="Click to type an episode">0</span><button id="epPlus" aria-label="One more">+</button></span>
             </div>
             <div class="row-divide"></div>
             <div class="pickrow">
@@ -87,6 +87,12 @@
         <section class="section" id="charactersSection" hidden>
           <div class="sec-head"><span class="sec-label">Characters</span></div>
           <div class="rail" id="charactersRail"></div>
+        </section>
+
+        <!-- Featured reviews -->
+        <section class="section" id="reviewsSection" hidden>
+          <div class="sec-head"><span class="sec-label">Featured reviews</span></div>
+          <div id="reviewsList"></div>
         </section>
       </div>
 

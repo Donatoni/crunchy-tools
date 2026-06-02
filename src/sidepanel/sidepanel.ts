@@ -11,13 +11,14 @@ import {
   setMalStatus,
   startMalAuth,
   requestMalCharacters,
+  requestMalReviews,
 } from '@/shared/messages';
 import type {
   ContentStatusRequest,
   MalStatusResponse,
   TabStatusResponse,
 } from '@/shared/messages';
-import type { MalCharacter, MalRelated } from '@/shared/mal';
+import type { MalCharacter, MalRelated, MalReview } from '@/shared/mal';
 import { getUserName } from '@/shared/mal';
 import { formatSaved, getStats } from '@/shared/stats';
 import { clearHistory, getHistory, removeHistory, type HistoryEntry } from '@/shared/history';
@@ -54,7 +55,9 @@ let malResp: MalStatusResponse | undefined;
 let malTotal: number | null = null;
 let lastMetaKey = '';
 let lastCharId: number | null = null;
-let charCache = new Map<number, MalCharacter[]>();
+const charCache = new Map<number, MalCharacter[]>();
+let lastReviewId: number | null = null;
+const reviewCache = new Map<number, { reviews: MalReview[]; allUrl: string }>();
 
 // ── elements ────────────────────────────────────────────────────────
 const watchingView = $('#watchingView');
@@ -95,6 +98,8 @@ const seasonsSection = $('#seasonsSection');
 const seasonsRail = $('#seasonsRail');
 const charactersSection = $('#charactersSection');
 const charactersRail = $('#charactersRail');
+const reviewsSection = $('#reviewsSection');
+const reviewsList = $('#reviewsList');
 
 const idleHistorySection = $('#idleHistorySection');
 const idleHistory = $('#idleHistory');
@@ -241,6 +246,65 @@ async function loadCharacters(animeId: number): Promise<void> {
   charactersSection.hidden = chars.length === 0;
 }
 
+function reviewTagClass(tag: string): string {
+  const t = tag.toLowerCase();
+  if (t.includes('not')) return 'not';
+  if (t.includes('mixed')) return 'mixed';
+  if (t.includes('recommend')) return 'rec';
+  return '';
+}
+
+async function loadReviews(animeId: number): Promise<void> {
+  if (animeId === lastReviewId) return;
+  lastReviewId = animeId;
+  reviewsSection.hidden = true;
+  let data = reviewCache.get(animeId);
+  if (!data) {
+    try {
+      const r = await requestMalReviews(animeId);
+      data = { reviews: r.ok ? r.reviews : [], allUrl: r.allUrl ?? '' };
+      reviewCache.set(animeId, data);
+    } catch {
+      data = { reviews: [], allUrl: '' };
+    }
+  }
+  if (animeId !== lastReviewId) return;
+  reviewsList.replaceChildren();
+  for (const rv of data.reviews) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'review';
+    const tagCls = reviewTagClass(rv.tag);
+    const top = document.createElement('div');
+    top.className = 'review-top';
+    top.innerHTML =
+      `<div class="review-av"></div><span class="review-user"></span>` +
+      (rv.score ? `<span class="review-score"><span style="color:#ffc24b">★</span>${rv.score}</span>` : '') +
+      (rv.tag ? `<span class="review-tag ${tagCls}">${rv.tag}</span>` : '');
+    setBg(top.querySelector('.review-av')!, rv.avatar);
+    top.querySelector<HTMLElement>('.review-user')!.textContent = rv.user;
+    const text = document.createElement('div');
+    text.className = 'review-text';
+    text.textContent = rv.text;
+    const more = document.createElement('div');
+    more.className = 'review-more';
+    more.textContent = 'Read full review →';
+    card.append(top, text, more);
+    if (rv.url) card.addEventListener('click', () => window.open(rv.url, '_blank', 'noopener'));
+    reviewsList.appendChild(card);
+  }
+  if (data.reviews.length && data.allUrl) {
+    const all = document.createElement('a');
+    all.className = 'reviews-all';
+    all.href = data.allUrl;
+    all.target = '_blank';
+    all.rel = 'noopener';
+    all.textContent = 'View all reviews on MyAnimeList →';
+    reviewsList.appendChild(all);
+  }
+  reviewsSection.hidden = data.reviews.length === 0;
+}
+
 // ── your list (MAL controls) ────────────────────────────────────────
 function setStatusControl(value: string): void {
   const opt = MAL_STATUS.find((o) => o.value === value) ?? MAL_STATUS[0];
@@ -290,10 +354,12 @@ function applyMal(r: MalStatusResponse | undefined): void {
     if (r.animeId) {
       malLink.href = `https://myanimelist.net/anime/${r.animeId}`;
       void loadCharacters(r.animeId);
+      void loadReviews(r.animeId);
     }
   } else {
     hideDetails();
     charactersSection.hidden = true;
+    reviewsSection.hidden = true;
   }
 
   // Your-list card (signed in + matched) vs nudge (not signed in) vs note.
@@ -370,6 +436,37 @@ epPlus.addEventListener('click', () => {
   const patch: MalPatch = { num_watched_episodes: n };
   if (malTotal && n >= malTotal) patch.status = 'completed';
   void saveMal(patch);
+});
+
+// Type an episode directly into the field.
+epVal.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    epVal.blur();
+  } else if (e.key === 'Escape') {
+    epVal.textContent = String(malResp?.watched ?? 0);
+    epVal.blur();
+  }
+});
+epVal.addEventListener('focus', () => {
+  const range = document.createRange();
+  range.selectNodeContents(epVal);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+});
+epVal.addEventListener('blur', () => {
+  const cur = malResp?.watched ?? 0;
+  const raw = (epVal.textContent || '').replace(/[^0-9]/g, '');
+  let n = raw === '' ? cur : parseInt(raw, 10);
+  if (malTotal != null) n = Math.min(n, malTotal);
+  n = Math.max(0, n);
+  epVal.textContent = String(n);
+  if (n !== cur) {
+    const patch: MalPatch = { num_watched_episodes: n };
+    if (malTotal && n >= malTotal) patch.status = 'completed';
+    void saveMal(patch);
+  }
 });
 
 // status dropdown (built once)

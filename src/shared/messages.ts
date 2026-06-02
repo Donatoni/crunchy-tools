@@ -1,5 +1,5 @@
 import type { SkipSegment, TrackerMeta } from './types';
-import type { MalCharacter, MalRelated } from './mal';
+import type { MalCharacter, MalRelated, MalReview } from './mal';
 import { isExtensionContextValid } from './runtime';
 
 /**
@@ -99,6 +99,18 @@ export interface MalCharactersResponse {
   characters: MalCharacter[];
 }
 
+/** Side panel -> worker: featured reviews (via Jikan) for an anime. */
+export interface MalReviewsRequest {
+  type: 'GET_MAL_REVIEWS';
+  animeId: number;
+}
+export interface MalReviewsResponse {
+  ok: boolean;
+  reviews: MalReview[];
+  /** Link to the show's full reviews tab on MAL. */
+  allUrl?: string;
+}
+
 /** Popup -> worker: edit the user's MAL list entry for the current show. */
 export interface SetMalStatusRequest {
   type: 'SET_MAL_STATUS';
@@ -134,7 +146,8 @@ export type RuntimeMessage =
   | MalStatusRequest
   | SetMalStatusRequest
   | StartMalAuthRequest
-  | MalCharactersRequest;
+  | MalCharactersRequest
+  | MalReviewsRequest;
 
 /** Promise wrapper around chrome.runtime.sendMessage for skip-events. */
 export function requestSkipEvents(
@@ -208,6 +221,13 @@ export function startMalAuth(): Promise<StartMalAuthResponse> {
 export function requestMalCharacters(animeId: number): Promise<MalCharactersResponse> {
   return chrome.runtime.sendMessage<MalCharactersRequest, MalCharactersResponse>({
     type: 'GET_MAL_CHARACTERS',
+    animeId,
+  });
+}
+
+export function requestMalReviews(animeId: number): Promise<MalReviewsResponse> {
+  return chrome.runtime.sendMessage<MalReviewsRequest, MalReviewsResponse>({
+    type: 'GET_MAL_REVIEWS',
     animeId,
   });
 }
