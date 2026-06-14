@@ -66,7 +66,15 @@ export function attachSkipEngine(
   };
 
   video.addEventListener('timeupdate', onTimeUpdate);
+  // Backstop poll: in a background tab the rendering pipeline is throttled and
+  // `timeupdate` can fire sparsely, which would let a skip window slip past. A
+  // timer keeps the check running (the `consumed` set makes it idempotent with
+  // the event path). A playing tab is audible, so this isn't heavily throttled.
+  const pollId = window.setInterval(onTimeUpdate, 1000);
   return {
-    detach: () => video.removeEventListener('timeupdate', onTimeUpdate),
+    detach: () => {
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      window.clearInterval(pollId);
+    },
   };
 }
