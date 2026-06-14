@@ -9,7 +9,6 @@ import type { SkipType, TrackerMeta } from '@/shared/types';
 import {
   requestMalStatus,
   setMalStatus,
-  startMalAuth,
   requestMalCharacters,
   requestMalReviews,
   requestMyList,
@@ -21,7 +20,7 @@ import type {
   TabStatusResponse,
 } from '@/shared/messages';
 import type { MalCharacter, MalRelated, MalReview } from '@/shared/mal';
-import { getUserName } from '@/shared/mal';
+import { authorizeUrl, exchangeCode, getUserName, randomVerifier } from '@/shared/mal';
 import { formatSaved, getStats, lastNDays } from '@/shared/stats';
 import { clearHistory, getHistory, removeHistory, type HistoryEntry } from '@/shared/history';
 import {
@@ -30,6 +29,7 @@ import {
   getTokenData,
   removeMapping,
   setMapping,
+  setTokenData,
 } from '@/shared/tracker-store';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -888,13 +888,34 @@ setMalEnabled.addEventListener('change', async () => {
   await patchSettings({ mal: { ...s.mal, enabled: setMalEnabled.checked } });
 });
 setConnectBtn.addEventListener('click', async () => {
+  // Run the OAuth flow inline in the side panel. The panel stays open while
+  // launchWebAuthFlow's window is up, and invoking it from this page context
+  // reliably opens that window — delegating to the service worker (which has no
+  // window to host the auth popup) does not.
   setConnectBtn.disabled = true;
   setMalStatusEl.textContent = 'Connecting…';
   try {
-    const r = await startMalAuth();
-    if (!r.ok) setMalStatusEl.textContent = `Connect failed: ${r.error ?? 'error'}`;
-  } catch {
-    /* panel may close during auth; worker still saves the token */
+    const redirectUri = chrome.identity.getRedirectURL();
+    const verifier = randomVerifier(); // PKCE "plain": challenge == verifier
+    const state = randomVerifier().slice(0, 16);
+    const responseUrl = await new Promise<string | undefined>((resolve, reject) => {
+      chrome.identity.launchWebAuthFlow(
+        { url: authorizeUrl(verifier, redirectUri, state), interactive: true },
+        (url) => {
+          const e = chrome.runtime.lastError;
+          if (e) reject(new Error(e.message));
+          else resolve(url);
+        },
+      );
+    });
+    const params = new URLSearchParams((responseUrl ?? '').split('?')[1] ?? '');
+    if (params.get('state') !== state) throw new Error('State mismatch');
+    const code = params.get('code');
+    if (!code) throw new Error(params.get('error') ?? 'No authorization code');
+    const token = await exchangeCode(code, verifier, redirectUri);
+    await setTokenData(token);
+  } catch (err) {
+    setMalStatusEl.textContent = `Connect failed: ${err instanceof Error ? err.message : 'error'}`;
   } finally {
     setConnectBtn.disabled = false;
     await renderMalSettings();
